@@ -5,7 +5,6 @@ Template Gallery Developer Terms of Service available at
 https://developers.google.com/tag-manager/gallery-tos (or such other URL as
 Google may provide), as modified from time to time.
 
-
 ___INFO___
 
 {
@@ -196,10 +195,24 @@ ___TEMPLATE_PARAMETERS___
       {
         "value": "eec",
         "displayValue": "Set automatically from dataLayer"
+      },
+      {
+        "value": "gtmvar",
+        "displayValue": "Read from variable",
+        "subParams": [
+          {
+            "type": "SELECT",
+            "name": "eecEventNameGTMVar",
+            "displayName": "",
+            "macrosInSelect": true,
+            "selectItems": [],
+            "simpleValueType": true
+          }
+        ]
       }
     ],
     "simpleValueType": true,
-    "help": "The Ecommerce integration populates the Event Name automatically depending on what \u003cstrong\u003erecommended ecommerce event name\u003c/strong\u003e was last pushed into dataLayer (\"view_item\" -\u003e \"ViewContent\", \"add_to_cart\" -\u003e \"AddToCart\", \"add_to_wishlist\" -\u003e \"AddToWishlist\", \"begin_checkout\" -\u003e \"InitiateCheckout\", \"add_payment_info\" -\u003e \"AddPaymentInfo\". \"purchase\" -\u003e \"Purchase\").",
+    "help": "The Ecommerce integration populates the Event Name automatically depending on what \u003cstrong\u003erecommended ecommerce event name\u003c/strong\u003e was last pushed into dataLayer (\"view_item\" -\u003e \"ViewContent\", \"add_to_cart\" -\u003e \"AddToCart\", \"add_to_wishlist\" -\u003e \"AddToWishlist\", \"begin_checkout\" -\u003e \"InitiateCheckout\", \"add_payment_info\" -\u003e \"AddPaymentInfo\". \"purchase\" -\u003e \"Purchase\").\n\nAlternatively you can select a GTM variable that returns one of the recommended ecommerce event names.",
     "enablingConditions": [
       {
         "paramName": "enhancedEcommerce",
@@ -497,7 +510,7 @@ const initIds = copyFromWindow('_fbq_gtm_ids') || [];
 const pixelIds = data.pixelId;
 const standardEventNames = ['AddPaymentInfo', 'AddToCart', 'AddToWishlist', 'CompleteRegistration', 'Contact', 'CustomizeProduct', 'Donate', 'FindLocation', 'InitiateCheckout', 'Lead', 'PageView', 'Purchase', 'Schedule', 'Search', 'StartTrial', 'SubmitApplication', 'Subscribe', 'ViewContent'];
 const ecommerce = copyFromDataLayer('ecommerce', 1);
-const lastEventName = copyFromDataLayer('event');
+let lastEventName = copyFromDataLayer('event');
 
 // Helper methods
 const fail = msg => {
@@ -525,10 +538,21 @@ const parseEecObj = prod => {
 let eventName, action, eecObjectProps;
 if (data.enhancedEcommerce) {
   if (!ecommerce) return fail('Facebook Pixel: No valid "ecommerce" object found in dataLayer');
+  
+  if ("gtmvar" === data.eecEventName) {
+    if (data.eecEventNameGTMVar) {
+      lastEventName = data.eecEventNameGTMVar;
+    }
+    
+    if (!lastEventName) {
+      return fail('Facebook Pixel: No event name was returned by the selected GTM variable');
+    }
+  }
+  
   if ("view_item" === lastEventName) { eventName = 'ViewContent'; }
   else if ("add_to_cart" === lastEventName) { eventName = 'AddToCart'; }
   else if ("add_to_wishlist" === lastEventName) { eventName = 'AddToWishlist'; }
-  else if ("begin_checkout" === lastEventName) { eventName = 'InitiateCheckout'; }
+  else if ("begin_checkout" === lastEventName || "begin_checkout" === lastEventName) { eventName = 'InitiateCheckout'; }
   else if ("add_payment_info" === lastEventName) { eventName = 'AddPaymentInfo'; }
   else if ("purchase" === lastEventName) { eventName = 'Purchase'; }
   else return fail('Facebook Pixel: Most recently pushed ecommerce event name unsupported: ' + lastEventName);
@@ -1027,6 +1051,13 @@ ___WEB_PERMISSIONS___
       },
       "param": [
         {
+          "key": "allowedKeys",
+          "value": {
+            "type": 1,
+            "string": "specific"
+          }
+        },
+        {
           "key": "keyPatterns",
           "value": {
             "type": 2,
@@ -1389,5 +1420,3 @@ setup: "const mockData = {\n  pixelId: '12345,23456',\n  eventName: 'standard',\
 ___NOTES___
 
 Created on 18/05/2019, 21:57:16
-
-
