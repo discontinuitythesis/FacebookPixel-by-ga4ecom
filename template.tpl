@@ -8,8 +8,8 @@ Google may provide), as modified from time to time.
 ___INFO___
 
 {
-  "displayName": "Facebook Pixel by Jabjab",
-  "description": "This is an unofficial Google Tag Manager template for the Facebook Pixel. Originally developed by Simo Ahava.",
+  "displayName": "Facebook Pixel by JabJab",
+  "description": "This is an unofficial Google Tag Manager template for the Facebook Pixel. Originally developed by Simo Ahava.\n\nWorks with GA4 ecommerce data layer and integrates with Consent Mode v2.",
   "securityGroups": [],
   "categories": [
     "ADVERTISING",
@@ -249,10 +249,14 @@ ___TEMPLATE_PARAMETERS___
       {
         "value": false,
         "displayValue": "False"
+      },
+      {
+        "value": "consent_mode",
+        "displayValue": "Bind to Consent Mode"
       }
     ],
     "simpleValueType": true,
-    "help": "If you set Consent Granted to \u003cstrong\u003efalse\u003c/strong\u003e, the pixel will not send any hits until a tag is fired where Consent Granted is set to \u003cstrong\u003etrue\u003c/strong\u003e. See \u003ca href\u003d\"https://developers.facebook.com/docs/facebook-pixel/implementation/gdpr/\"\u003ethis article\u003c/a\u003e for more information."
+    "help": "If you set Consent Granted to \u003cstrong\u003efalse\u003c/strong\u003e, the pixel will not send any hits until a tag is fired where Consent Granted is set to \u003cstrong\u003etrue\u003c/strong\u003e. See \u003ca href\u003d\"https://developers.facebook.com/docs/facebook-pixel/implementation/gdpr/\"\u003ethis article\u003c/a\u003e for more information.\n\nSettings this to \"Bind to Consent Mode\", the tag will wait until the ad_storage AND ad_personalization flags has been set to granted. Advanced Matching will be disabled if ad_user_data is not granted."
   },
   {
     "simpleValueType": true,
@@ -505,11 +509,17 @@ const getType = require('getType');
 const copyFromDataLayer = require('copyFromDataLayer');
 const math = require('Math');
 const log = require('logToConsole');
+const isConsentGranted = require('isConsentGranted');
+const addConsentListener = require('addConsentListener');
 
 const initIds = copyFromWindow('_fbq_gtm_ids') || [];
 const pixelIds = data.pixelId;
 const standardEventNames = ['AddPaymentInfo', 'AddToCart', 'AddToWishlist', 'CompleteRegistration', 'Contact', 'CustomizeProduct', 'Donate', 'FindLocation', 'InitiateCheckout', 'Lead', 'PageView', 'Purchase', 'Schedule', 'Search', 'StartTrial', 'SubmitApplication', 'Subscribe', 'ViewContent'];
-const ecommerce = copyFromDataLayer('ecommerce', 1);
+let ecommerce = copyFromDataLayer('ecommerce', 1);
+if (!ecommerce) {
+  // if data is comming directly from a gtag() command...
+  ecommerce = copyFromDataLayer('eventModel', 1);
+}
 let lastEventName = copyFromDataLayer('event');
 
 // Helper methods
@@ -584,7 +594,7 @@ const finalObjectProps = mergeObj(eecObjectProps || {}, mergedObjectProps);
 eventName = eventName || (data.eventName === 'custom' ? data.customEventName : (data.eventName === 'variable' ? data.variableEventName : data.standardEventName));
 
 const command = standardEventNames.indexOf(eventName) === -1 ? 'trackSingleCustom' : 'trackSingle';
-const consent = data.consent === false || data.consent === 'false' ? 'revoke' : 'grant';
+//const consent = data.consent === false || data.consent === 'false' ? 'revoke' : 'grant';
 
 // Utility function to use either fbq.queue[]
 // (if the FB SDK hasn't loaded yet), or fbq.callMethod()
@@ -615,14 +625,56 @@ const getFbq = () => {
   return copyFromWindow('fbq');
 };
 
+let ad_storage = false;
+let ad_personalization = false;
+let ad_user_data = false;
+
+const checkAndFireTracking = () => {
+  if (ad_storage && ad_personalization) {
+    log('Facebook pixel: tracking granted!');
+    fbq('consent', 'grant');
+  } else {
+    log('Facebook pixel: ad_storage = ' + ad_storage);
+    log('Facebook pixel: ad_personalization = ' + ad_personalization);
+    log('Facebook pixel: tracking denied due to missing consents');
+    fbq('consent', 'revoke');
+  }
+};
+
 // Get reference to the global method
 const fbq = getFbq();
 
-fbq('consent', consent);
+// do not send any hits by default, just queue events
+fbq('consent', 'revoke');
 
  // Set Data Processing Options
 if (data.dpoLDU) {
   fbq('dataProcessingOptions', ['LDU'], makeNumber(data.dpoCountry), makeNumber(data.dpoState));
+}
+
+// Check consent settings
+const consent = data.consent || false;
+
+if (consent === 'consent_mode') {
+  ad_storage = isConsentGranted('ad_storage');
+  ad_personalization = isConsentGranted('ad_personalization');
+  ad_user_data = isConsentGranted('ad_user_data');
+
+  addConsentListener('ad_storage', (consentType, granted) => {
+    ad_storage = granted;
+    checkAndFireTracking();
+  });
+
+  addConsentListener('ad_personalization', (consentType, granted) => {
+    ad_personalization = granted;
+    checkAndFireTracking();
+  });
+} else {
+  if (consent === true || consent === 'true') {
+    ad_storage = true;
+    ad_personalization = true;
+    ad_user_data = true;
+  }
 }
 
 // Handle multiple, comma-separated pixel IDs,
@@ -641,7 +693,11 @@ pixelIds.split(',').forEach(pixelId => {
     }
 
     // Initialize pixel and store in global array
-    fbq('init', pixelId, cidParams);
+    if (ad_user_data) {
+      fbq('init', pixelId, cidParams);
+    } else {
+      fbq('init', pixelId);
+    }
 
     initIds.push(pixelId);
     setInWindow('_fbq_gtm_ids', initIds, true);
@@ -656,7 +712,10 @@ pixelIds.split(',').forEach(pixelId => {
   }
 });
 
-injectScript('https://connect.facebook.net/en_US/fbevents.js', data.gtmOnSuccess, data.gtmOnFailure, 'fbPixel');
+injectScript('https://connect.facebook.net/en_US/fbevents.js', function() {
+  checkAndFireTracking();
+  data.gtmOnSuccess();
+}, data.gtmOnFailure, 'fbPixel');
 
 
 ___WEB_PERMISSIONS___
@@ -1069,6 +1128,125 @@ ___WEB_PERMISSIONS___
               {
                 "type": 1,
                 "string": "event"
+              },
+              {
+                "type": 1,
+                "string": "eventModel"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "clientAnnotations": {
+      "isEditedByUser": true
+    },
+    "isRequired": true
+  },
+  {
+    "instance": {
+      "key": {
+        "publicId": "access_consent",
+        "versionId": "1"
+      },
+      "param": [
+        {
+          "key": "consentTypes",
+          "value": {
+            "type": 2,
+            "listItem": [
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "consentType"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ad_storage"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "consentType"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ad_user_data"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "consentType"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ad_personalization"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
               }
             ]
           }
@@ -1420,3 +1598,5 @@ setup: "const mockData = {\n  pixelId: '12345,23456',\n  eventName: 'standard',\
 ___NOTES___
 
 Created on 18/05/2019, 21:57:16
+
+
