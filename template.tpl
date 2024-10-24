@@ -498,17 +498,20 @@ ___TEMPLATE_PARAMETERS___
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
 const createQueue = require('createQueue');
+
 const callInWindow = require('callInWindow');
 const aliasInWindow = require('aliasInWindow');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
+
 const injectScript = require('injectScript');
 const makeTableMap = require('makeTableMap');
 const makeNumber = require('makeNumber');
-const getType = require('getType');
-const copyFromDataLayer = require('copyFromDataLayer');
 const math = require('Math');
 const log = require('logToConsole');
+const getType = require('getType');
+
+const copyFromDataLayer = require('copyFromDataLayer');
 const isConsentGranted = require('isConsentGranted');
 const addConsentListener = require('addConsentListener');
 
@@ -594,7 +597,6 @@ const finalObjectProps = mergeObj(eecObjectProps || {}, mergedObjectProps);
 eventName = eventName || (data.eventName === 'custom' ? data.customEventName : (data.eventName === 'variable' ? data.variableEventName : data.standardEventName));
 
 const command = standardEventNames.indexOf(eventName) === -1 ? 'trackSingleCustom' : 'trackSingle';
-//const consent = data.consent === false || data.consent === 'false' ? 'revoke' : 'grant';
 
 // Utility function to use either fbq.queue[]
 // (if the FB SDK hasn't loaded yet), or fbq.callMethod()
@@ -633,19 +635,11 @@ const checkAndFireTracking = () => {
   if (ad_storage && ad_personalization) {
     log('Facebook pixel: tracking granted!');
     fbq('consent', 'grant');
-  } else {
-    log('Facebook pixel: ad_storage = ' + ad_storage);
-    log('Facebook pixel: ad_personalization = ' + ad_personalization);
-    log('Facebook pixel: tracking denied due to missing consents');
-    fbq('consent', 'revoke');
   }
 };
 
 // Get reference to the global method
 const fbq = getFbq();
-
-// do not send any hits by default, just queue events
-fbq('consent', 'revoke');
 
  // Set Data Processing Options
 if (data.dpoLDU) {
@@ -660,20 +654,43 @@ if (consent === 'consent_mode') {
   ad_personalization = isConsentGranted('ad_personalization');
   ad_user_data = isConsentGranted('ad_user_data');
 
-  addConsentListener('ad_storage', (consentType, granted) => {
-    ad_storage = granted;
-    checkAndFireTracking();
-  });
+  const listeners_added = copyFromWindow('_fbq_listeners_added') || false;
+  if (!listeners_added) {
+    log('Facebook pixel: adding consent mode listeners...');
 
-  addConsentListener('ad_personalization', (consentType, granted) => {
-    ad_personalization = granted;
-    checkAndFireTracking();
-  });
-} else {
-  if (consent === true || consent === 'true') {
+    addConsentListener('ad_storage', (consentType, granted) => {
+      ad_storage = granted;
+      log('Facebook pixel: new ad_storage state = ' + ad_storage);
+      checkAndFireTracking();
+    });
+
+    addConsentListener('ad_personalization', (consentType, granted) => {
+      ad_personalization = granted;
+      log('Facebook pixel: new ad_personalization state = ' + ad_personalization);
+      checkAndFireTracking();
+    });
+    
+    setInWindow('_fbq_listeners_added', true, true);
+  }
+} else if (consent === true || consent === 'true') {
     ad_storage = true;
     ad_personalization = true;
     ad_user_data = true;
+}
+
+if (!ad_storage || !ad_personalization) {
+  // do not send any hits if consent not granted
+  log('Facebook pixel: ad_storage = ' + ad_storage);
+  log('Facebook pixel: ad_personalization = ' + ad_personalization);
+  
+  const tracking_already_revoked = copyFromWindow('_fbq_tracking_already_revoked') || false;
+  if (!tracking_already_revoked) {
+    log('Facebook pixel: Revoking consent by default...');
+
+    fbq('consent', 'revoke');
+    setInWindow('_fbq_tracking_already_revoked', true, true);
+  } else {
+    log('Facebook pixel: Tracking already revoked by default, nothing to do for now...');
   }
 }
 
@@ -713,6 +730,7 @@ pixelIds.split(',').forEach(pixelId => {
 });
 
 injectScript('https://connect.facebook.net/en_US/fbevents.js', function() {
+  log('Facebook pixel: fbevents.js loaded, firing tracking...');
   checkAndFireTracking();
   data.gtmOnSuccess();
 }, data.gtmOnFailure, 'fbPixel');
@@ -1044,6 +1062,84 @@ ___WEB_PERMISSIONS___
                     "boolean": false
                   }
                 ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "_fbq_listeners_added"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "_fbq_tracking_already_revoked"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
               }
             ]
           }
@@ -1263,336 +1359,8 @@ ___WEB_PERMISSIONS___
 
 ___TESTS___
 
-scenarios:
-- name: Library is injected
-  code: |-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('injectScript').wasCalledWith(scriptUrl, success, failure, 'fbPixel');
-    assertApi('gtmOnSuccess').wasCalled();
-- name: fbq does not exist - method created
-  code: |-
-    let fbq;
-
-    mock('copyFromWindow', key => {
-      if (key === 'fbq') return fbq;
-    });
-
-    mock('createQueue', key => {});
-
-    mock('setInWindow', (key, val) => {
-      if (key === 'fbq') fbq = val;
-    });
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('aliasInWindow').wasCalledWith('_fbq', 'fbq');
-    assertApi('setInWindow').wasCalled();
-    assertApi('gtmOnSuccess').wasCalled();
-- name: fbq exists - method copied
-  code: |-
-    mock('setInWindow', key => {
-      if (key === 'fbq') fail('setInWindow called with fbq even though variable exists');
-    });
-
-    mock('createQueue', key => {});
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('gtmOnSuccess').wasCalled();
-- name: makeTableMap called
-  code: |-
-    mockData.advancedMatching = true;
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('makeTableMap').wasCalledWith(mockData.advancedMatchingList, 'name', 'value');
-    assertApi('makeTableMap').wasCalledWith(mockData.objectPropertyList, 'name', 'value');
-    assertApi('gtmOnSuccess').wasCalled();
-- name: Consent set
-  code: |-
-    mock('copyFromWindow', key => {
-      if (key === 'fbq') return function() {
-        if (arguments[0] === 'consent') {
-          assertThat(arguments[1], 'Consent set incorrectly').isEqualTo('grant');
-        }
-      };
-    });
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('gtmOnSuccess').wasCalled();
-- name: DPO LDU set
-  code: |-
-    mockData.dpoLDU = true;
-    mockData.dpoCountry = '0';
-    mockData.dpoState = '0';
-
-    mock('copyFromWindow', key => {
-      if (key === 'fbq') return function() {
-        if (arguments[0] === 'consent') {
-          assertThat(arguments[1], 'Consent set incorrectly').isEqualTo('grant');
-        }
-        if (arguments[0] === 'dataProcessingOptions') {
-          assertThat(arguments[1], 'LDU array value not set').isEqualTo(['LDU']);
-          assertThat(arguments[2], 'LDU country not set').isEqualTo(0);
-          assertThat(arguments[3], 'LDU state not set').isEqualTo(0);
-        }
-      };
-    });
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('gtmOnSuccess').wasCalled();
-- name: DPO LDU not set
-  code: |-
-    mock('copyFromWindow', key => {
-      if (key === 'fbq') return function() {
-        if (arguments[0] === 'consent') {
-          assertThat(arguments[1], 'Consent set incorrectly').isEqualTo('grant');
-        }
-        if (arguments[0] === 'dataProcessingOptions') {
-          fail('dataProcessingOptions called even though DPO was not set');
-        }
-      };
-    });
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('gtmOnSuccess').wasCalled();
-- name: Pixel IDs set - do not initialize
-  code: |-
-    mock('copyFromWindow', key => {
-      if (key === '_fbq_gtm_ids') return ['12345', '23456'];
-      if (key === 'fbq') return function() {
-        if (arguments[0] === 'init') fail('init called even though pixel IDs already initialized');
-      };
-    });
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('gtmOnSuccess').wasCalled();
-- name: Pixel IDs not set - run init process
-  code: "let index = 0;\nlet count = 0;\nlet _fbq_gtm_ids;\n\nmockData.advancedMatching\
-    \ = true;\nmockData.disableAutoConfig = true;\nmockData.disablePushState = true;\n\
-    \nmock('setInWindow', (key, val) => {\n  if (key === 'fbq.disablePushState') count\
-    \ += 1;\n  if (key === '_fbq_gtm_ids') _fbq_gtm_ids = val;\n});\n\nconst initObj\
-    \ = {\n  ct: 'Helsinki',\n  cn: 'Finland',\n  external_id: 'UserId'\n};\n\nmock('copyFromWindow',\
-    \ key => {\n  if (key === 'fbq') return function() {\n    if (arguments[0] ===\
-    \ 'set' && arguments[1] === 'autoConfig' && arguments[2] === false) {\n      assertThat(arguments[3],\
-    \ 'autoConfig called with incorrect pixelId').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \    }\n    if (arguments[0] === 'set' && arguments[1] === 'agent') {\n      assertThat(arguments[2],\
-    \ 'agent set with invalid value').isEqualTo('tmSimo-GTM-WebTemplate');\n     \
-    \ assertThat(arguments[3], 'agent set with invalid pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      index += 1;\n    }\n    if (arguments[0] === 'init') {\n      assertThat(arguments[1],\
-    \ 'init called with incorrect pixelId').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'init called with incorrect initObj').isEqualTo(initObj);\n\
-    \    } \n  };\n});\n\n// Call runCode to run the template's code.\nrunCode(mockData);\n\
-    \nassertThat(_fbq_gtm_ids, '_fbq_gtm_ids has incorrect contents').isEqualTo(mockData.pixelId.split(','));\n\
-    assertThat(index, 'init called incorrect number of times: ' + index).isEqualTo(2);\n\
-    assertThat(count, 'fbq.disablePushState called incorrect number of times: ' +\
-    \ count).isEqualTo(2);\n\n// Verify that the tag finished successfully.\nassertApi('gtmOnSuccess').wasCalled();"
-- name: Send standard event
-  code: "const eventParams = {\n  prop1: 'val1',\n  prop2: 'val2'\n};\n\nlet index\
-    \ = 0;\nmock('copyFromWindow', key => {\n  if (key === 'fbq') return function()\
-    \ {\n    if (arguments[0] === 'trackSingle') {\n      assertThat(arguments[1],\
-    \ 'trackSingle called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingle called with incorrect event name').isEqualTo(mockData.standardEventName);\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(eventParams);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Send custom event
-  code: "mockData.eventName = 'custom';\n\nconst eventParams = {\n  prop1: 'val1',\n\
-    \  prop2: 'val2'\n};\n\nlet index = 0;\nmock('copyFromWindow', key => {\n  if\
-    \ (key === 'fbq') return function() {\n    if (arguments[0] === 'trackSingleCustom')\
-    \ {\n      assertThat(arguments[1], 'trackSingleCustom called with incorrect pixel\
-    \ ID').isEqualTo(mockData.pixelId.split(',')[index]);\n      assertThat(arguments[2],\
-    \ 'trackSingleCustom called with incorrect event name').isEqualTo(mockData.customEventName);\n\
-    \      assertThat(arguments[3], 'trackSingleCustom called with incorrect event\
-    \ parameters').isEqualTo(eventParams);\n      index += 1;\n    }\n  };\n});\n\
-    \     \n// Call runCode to run the template's code.\nrunCode(mockData);\n\n//\
-    \ Verify that the tag finished successfully.\nassertThat(index, 'trackSingleCustom\
-    \ called incorrect number of times').isEqualTo(2);\nassertApi('gtmOnSuccess').wasCalled();"
-- name: Send variable event with standard name
-  code: "mockData.eventName = 'variable';\nmockData.variableEventName = 'PageView';\n\
-    \nconst eventParams = {\n  prop1: 'val1',\n  prop2: 'val2'\n};\n\nlet index =\
-    \ 0;\nmock('copyFromWindow', key => {\n  if (key === 'fbq') return function()\
-    \ {\n    if (arguments[0] === 'trackSingle') {\n      assertThat(arguments[1],\
-    \ 'trackSingle called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingle called with incorrect event name').isEqualTo(mockData.variableEventName);\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(eventParams);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Send variable event with custom name
-  code: "mockData.eventName = 'variable';\nmockData.variableEventName = 'custom';\n\
-    \nconst eventParams = {\n  prop1: 'val1',\n  prop2: 'val2'\n};\n\nlet index =\
-    \ 0;\nmock('copyFromWindow', key => {\n  if (key === 'fbq') return function()\
-    \ {\n    if (arguments[0] === 'trackSingleCustom') {\n      assertThat(arguments[1],\
-    \ 'trackSingleCustom called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingleCustom called with incorrect event\
-    \ name').isEqualTo(mockData.variableEventName);\n      assertThat(arguments[3],\
-    \ 'trackSingleCustom called with incorrect event parameters').isEqualTo(eventParams);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingleCustom called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Send event parameters from a variable
-  code: "mockData.objectPropertiesFromVariable = {\n  prop1: 'val1',\n  prop2: 'val2'\n\
-    };\n\nlet index = 0;\nmock('copyFromWindow', key => {\n  if (key === 'fbq') return\
-    \ function() {\n    if (arguments[0] === 'trackSingle') {\n      assertThat(arguments[1],\
-    \ 'trackSingle called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingle called with incorrect event name').isEqualTo(mockData.standardEventName);\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(mockData.objectPropertiesFromVariable);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Enhanced Ecommerce integration fails with invalid object
-  code: |-
-    mockData.enhancedEcommerce = true;
-
-    // Call runCode to run the template's code.
-    runCode(mockData);
-
-    // Verify that the tag finished successfully.
-    assertApi('logToConsole').wasCalledWith('Facebook Pixel: No valid "ecommerce" object found in dataLayer');
-    assertApi('gtmOnFailure').wasCalled();
-    assertApi('gtmOnSuccess').wasNotCalled();
-- name: Enhanced Ecommerce integration fails with invalid action
-  code: "mockData.enhancedEcommerce = true;\n\nmock('copyFromDataLayer', key => {\n\
-    \  if (key === 'ecommerce') return {\n    invalid: true\n  };\n  \n  if (key ===\
-    \ \"event\") return \"view_item\";\n});\n\n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertApi('logToConsole').wasCalledWith('Facebook pixel: Most recently pushed\
-    \ \"ecommerce\" object did not have a valid \"items\" array.');\nassertApi('gtmOnFailure').wasCalled();\n\
-    assertApi('gtmOnSuccess').wasNotCalled();"
-- name: Enhanced Ecommerce ViewContent works
-  code: "mockData.enhancedEcommerce = true;\nmockData.objectPropertyList = {};\n\n\
-    mock('copyFromDataLayer', key => {\n  if (key === 'ecommerce') return {\n    currency:\
-    \ 'EUR',\n    items: mockEec.gtm.products\n  };\n\n  if (key === 'event') return\
-    \ \"view_item\";\n});\n\nlet index = 0;\nmock('copyFromWindow', key => {\n  if\
-    \ (key === 'fbq') return function() {\n    if (arguments[0] === 'trackSingle')\
-    \ {\n      assertThat(arguments[1], 'trackSingle called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingle called with incorrect event name').isEqualTo('ViewContent');\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(mockEec.fb);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Enhanced Ecommerce AddToCart works
-  code: "mockData.enhancedEcommerce = true;\nmockData.objectPropertyList = {};\n\n\
-    mock('copyFromDataLayer', key => {\n  if (key === 'ecommerce') return {\n    currency:\
-    \ 'EUR',\n    items: mockEec.gtm.products\n  };\n\n\n  if (key === 'event') return\
-    \ \"add_to_cart\";\n});\n\nlet index = 0;\nmock('copyFromWindow', key => {\n \
-    \ if (key === 'fbq') return function() {\n    if (arguments[0] === 'trackSingle')\
-    \ {\n      assertThat(arguments[1], 'trackSingle called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingle called with incorrect event name').isEqualTo('AddToCart');\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(mockEec.fb);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Enhanced Ecommerce InitiateCheckout works
-  code: "mockData.enhancedEcommerce = true;\nmockEec.fb.num_items = 3;\nmockData.objectPropertyList\
-    \ = {};\n\nmock('copyFromDataLayer', key => {\n  if (key === 'ecommerce') return\
-    \ {\n    currency: 'EUR',\n    items: mockEec.gtm.products\n  };\n\n  if (key\
-    \ === 'event') return \"begin_checkout\";\n});\n\nlet index = 0;\nmock('copyFromWindow',\
-    \ key => {\n  if (key === 'fbq') return function() {\n    if (arguments[0] ===\
-    \ 'trackSingle') {\n      assertThat(arguments[1], 'trackSingle called with incorrect\
-    \ pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n      assertThat(arguments[2],\
-    \ 'trackSingle called with incorrect event name').isEqualTo('InitiateCheckout');\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(mockEec.fb);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Enhanced Ecommerce Purchase works
-  code: "mockData.enhancedEcommerce = true;\nmockEec.fb.num_items = 3;\nmockData.objectPropertyList\
-    \ = {};\n\nmock('copyFromDataLayer', key => {\n  if (key === 'ecommerce') return\
-    \ {\n    currency: 'EUR',\n    items: mockEec.gtm.products\n  };\n\n  if (key\
-    \ === 'event') return \"purchase\";\n});\n\nlet index = 0;\nmock('copyFromWindow',\
-    \ key => {\n  if (key === 'fbq') return function() {\n    if (arguments[0] ===\
-    \ 'trackSingle') {\n      assertThat(arguments[1], 'trackSingle called with incorrect\
-    \ pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n      assertThat(arguments[2],\
-    \ 'trackSingle called with incorrect event name').isEqualTo('Purchase');\n   \
-    \   assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(mockEec.fb);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Object merge with variable and list works
-  code: "mockData.objectPropertiesFromVariable = {\n  prop1: 'var1',\n  prop2: 'var2',\n\
-    \  prop3: 'var3'\n};\n\nconst expected = {\n  prop1: 'val1',\n  prop2: 'val2',\n\
-    \  prop3: 'var3'\n};\n\nlet index = 0;\nmock('copyFromWindow', key => {\n  if\
-    \ (key === 'fbq') return function() {\n    if (arguments[0] === 'trackSingle')\
-    \ {\n      assertThat(arguments[1], 'trackSingle called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingle called with incorrect event name').isEqualTo('PageView');\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(expected);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Object merge with variable, list and eec works
-  code: "mockData.enhancedEcommerce = true;\nmockData.objectPropertiesFromVariable\
-    \ = {\n  content_type: 'product_group'\n};\nmockData.objectPropertyList = [{\n\
-    \  name: 'currency',\n  value: 'USD'\n}];\nmockEec.fb.num_items = 3;\nmockEec.fb.content_type\
-    \ = 'product_group';\nmockEec.fb.currency = 'USD';\n\nmock('copyFromDataLayer',\
-    \ key => {\n  if (key === 'ecommerce') return {\n    currency: 'EUR',\n    items:\
-    \ mockEec.gtm.products\n  };\n\n  if (key === 'event') return \"purchase\";\n\
-    });\n\nlet index = 0;\nmock('copyFromWindow', key => {\n  if (key === 'fbq') return\
-    \ function() {\n    if (arguments[0] === 'trackSingle') {\n      assertThat(arguments[1],\
-    \ 'trackSingle called with incorrect pixel ID').isEqualTo(mockData.pixelId.split(',')[index]);\n\
-    \      assertThat(arguments[2], 'trackSingle called with incorrect event name').isEqualTo('Purchase');\n\
-    \      assertThat(arguments[3], 'trackSingle called with incorrect event parameters').isEqualTo(mockEec.fb);\n\
-    \      index += 1;\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertThat(index, 'trackSingle called incorrect number of times').isEqualTo(2);\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-- name: Send event ID
-  code: "mockData.eventId = 'eventId';\n\nmock('copyFromWindow', key => {\n  if (key\
-    \ === 'fbq') return function() {\n    if (arguments[0] === 'trackSingle') {\n\
-    \      assertThat(arguments[4], 'eventID not included in hit').isEqualTo({eventID:\
-    \ mockData.eventId});\n    }\n  };\n});\n     \n// Call runCode to run the template's\
-    \ code.\nrunCode(mockData);\n\n// Verify that the tag finished successfully.\n\
-    assertApi('gtmOnSuccess').wasCalled();"
-setup: "const mockData = {\n  pixelId: '12345,23456',\n  eventName: 'standard',\n\
-  \  standardEventName: 'PageView',\n  customEventName: 'custom',\n  variableEventName:\
-  \ 'standard',\n  consent: true,\n  advancedMatching: false,\n  advancedMatchingList:\
-  \ [{name: 'ct', value: 'Helsinki'},{name: 'cn', value: 'Finland'},{name: 'external_id',\
-  \ value: 'UserId'}],\n  objectPropertiesFromVariable: false,\n  objectPropertyList:\
-  \ [{name: 'prop1', value: 'val1'},{name: 'prop2', value: 'val2'}],\n  disableAutoConfig:\
-  \ false,\n  disablePushState: false,\n  enhancedEcommerce: false,\n  eventId: ''\n\
-  };\n\nconst mockEec = {\n  gtm: {  \n    products: [{\n      item_id: 'i1',\n  \
-  \    item_name: 'n1',\n      item_category: 'c1',\n      price: '1.00',\n      quantity:\
-  \ 1\n    },{\n      item_id: 'i2',\n      item_name: 'n2',\n      item_category:\
-  \ 'c2',\n      price: '2.00',\n      quantity: 2\n    }]\n  },\n  fb: {\n    content_type:\
-  \ 'product',\n    contents: [{\n      id: 'i1',\n      quantity: 1\n    },{\n  \
-  \    id: 'i2',\n      quantity: 2\n    }],\n    currency: 'EUR',\n    value: 5.00\n\
-  \  }\n};\n\nconst scriptUrl = 'https://connect.facebook.net/en_US/fbevents.js';\n\
-  \n// Create injectScript mock\nlet success, failure;\nmock('injectScript', (url,\
-  \ onsuccess, onfailure) => {\n  success = onsuccess;\n  failure = onfailure;\n \
-  \ onsuccess();\n});\n\nmock('copyFromWindow', key => {\n  if (key === 'fbq') return\
-  \ () => {};\n});"
+scenarios: []
+setup: ''
 
 
 ___NOTES___
